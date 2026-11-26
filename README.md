@@ -2,8 +2,8 @@
 
 # TaskbarMeter
 
-**A tiny CPU / RAM / GPU / disk / network monitor for the Windows 11 taskbar.**<br>
-Looks like part of Windows. About 1 MB of memory, one 74 KB exe.
+**A tiny CPU / RAM / GPU / disk / network monitor for the Windows taskbar.**<br>
+It looks like it shipped with Windows and uses about 1.3 MB of memory.
 
 [![Build](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml/badge.svg)](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/gutsguy/taskbar-meter)](https://github.com/gutsguy/taskbar-meter/releases/latest)
@@ -17,42 +17,89 @@ Looks like part of Windows. About 1 MB of memory, one 74 KB exe.
 
 </div>
 
-## Features
+---
 
-- CPU, RAM, GPU, disk, network ↑↓ — turn each on or off from the right-click menu
-- Taskbar font, transparent background, follows light/dark theme
-- Next to the clock, or at the left end (steps around the Widgets button)
-- Turns orange at 90 %+ · double-click opens Task Manager
-- No installer, no runtime. Hidden meters cost nothing.
+## Why
+
+Most taskbar monitors bring their own box, background and font, and they cost tens of megabytes to show two numbers.
+TaskbarMeter draws plain text in the taskbar's own font, follows your light/dark theme, and stays out of the way.
+
+- **Native look.** Segoe UI, transparent background, matches the clock. Light and dark themes, any DPI.
+- **Tiny.** A single ~70 KB `.exe`. No installer, no runtime, no config files.
+- **Pay for what you show.** Meters you turn off are not sampled at all.
 
 ## Footprint
 
+Measured on the same Windows 11 PC, showing CPU + RAM + network, averaged over 30 s.
+
 | | TaskbarMeter | TrafficMonitor Lite 1.86 |
 |---|---:|---:|
-| Memory | **1.3 MB** | 13.5 MB |
+| Private memory | **1.3 MB** | 13.5 MB |
 | CPU | **0.02 %** | 0.06 % |
-| Download | **1 file, 74 KB** | ~60 files |
+| Download | **1 file, ~70 KB** | ~60 files, 1 MB zip |
 
-Same PC, CPU + RAM + network shown, private memory, 30 s average.
-Want skins, graphs or temperatures? [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) does far more.
+With every meter turned on it uses about 7 MB (GPU counters are the expensive part). The left-end position adds about 2 MB.
+
+> [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) does far more: skins, graphs, temperatures, plugins.
+> If you need those, use it. TaskbarMeter is for people who only want the numbers.
+
+## Features
+
+- CPU, RAM, GPU, disk and network (↑ upload / ↓ download), each can be turned on or off
+- Values turn orange at 90 % and above
+- Next to the clock, or at the left end of the taskbar (it moves past the Widgets button and out of the way of your app icons)
+- Double-click opens Task Manager
+- Survives Explorer restarts
+- English and Korean menu (follows the Windows display language)
 
 ## Install
 
-Download `TaskbarMeter.exe` from [Releases](https://github.com/gutsguy/taskbar-meter/releases/latest) and run it.
-Right-click → **Start with Windows** to keep it. If SmartScreen warns: **More info → Run anyway**.
+1. Download `TaskbarMeter.exe` from [Releases](https://github.com/gutsguy/taskbar-meter/releases/latest).
+2. Run it.
+3. Right-click the numbers → **Start with Windows**, if you want it on every boot.
 
-## Build
+Windows SmartScreen may warn about an unsigned app on first run: **More info → Run anyway**.
+
+## Usage
+
+| Action | Result |
+|---|---|
+| Double-click | Open Task Manager |
+| Right-click | Toggle meters, show on left, start with Windows, exit |
+
+Settings are stored in `HKCU\Software\TaskbarMeter`.
+
+## Build from source
+
+Requires [Zig](https://ziglang.org/download/) 0.17 or later (used as a C compiler, no Visual Studio needed).
 
 ```bat
+git clone https://github.com/gutsguy/taskbar-meter
+cd taskbar-meter
 build.cmd
 ```
 
-Needs [Zig](https://ziglang.org/download/) 0.17+ on `PATH` (or set `ZIG`). The whole app is one C file: [`src/meter.c`](src/meter.c).
+Set `ZIG` to the full path of `zig.exe` if it is not on your `PATH`.
 
-## Notes
+## How it works
 
-- Tested on Windows 11. Windows 10 may work but is untested.
-- Primary monitor only. No temperatures (they need admin rights and a driver).
+The whole program is one C file, [`src/meter.c`](src/meter.c), using only Win32 APIs.
+
+- A layered child window is attached to the taskbar (`Shell_TrayWnd`) and redrawn once per second with per-pixel alpha.
+- CPU from `GetSystemTimes`, RAM from `GlobalMemoryStatusEx`, network from `GetIfTable2` (physical adapters only).
+- GPU and disk from Performance Counters (`GPU Engine`, `PhysicalDisk`), the same sources Task Manager uses.
+- In left-end mode, UI Automation finds where the Widgets button ends, re-checked as soon as taskbar settings change.
+
+## Limitations
+
+- Built and tested for Windows 11. Windows 10 (1607+) should run it but is untested; there, a full taskbar's app buttons can slide under the meter, and vertical taskbars are not supported.
+- Primary monitor's taskbar only.
+- No temperatures. Reading them needs administrator rights and a kernel driver, which goes against the point of this app.
+
+## Uninstall
+
+Right-click → turn off **Start with Windows** → **Exit**, then delete the `.exe`.
+Optionally delete the `HKCU\Software\TaskbarMeter` registry key.
 
 ## License
 

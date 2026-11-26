@@ -50,6 +50,7 @@ With every meter turned on it uses about 7 MB (GPU counters are the expensive pa
 - CPU, RAM, GPU, disk and network (↑ upload / ↓ download), each can be turned on or off
 - Values turn orange at 90 % and above
 - Next to the clock, or at the left end of the taskbar (it moves past the Widgets button and out of the way of your app icons)
+- Hover for details: RAM in GB, uptime, and network totals when the network meter is on
 - Double-click opens Task Manager
 - Survives Explorer restarts
 - English and Korean menu (follows the Windows display language)
@@ -66,6 +67,7 @@ Windows SmartScreen may warn about an unsigned app on first run: **More info →
 
 | Action | Result |
 |---|---|
+| Hover | RAM in GB and uptime, plus network totals since start when the network meter is on |
 | Double-click | Open Task Manager |
 | Right-click | Toggle meters, show on left, start with Windows, exit |
 

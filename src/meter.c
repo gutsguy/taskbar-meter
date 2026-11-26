@@ -1,8 +1,8 @@
 // TaskbarMeter - a tiny CPU / RAM / GPU / disk / network monitor for the Windows taskbar.
 //
 // Draws plain text straight onto the taskbar (as a layered child window of Shell_TrayWnd),
-// refreshed once per second. Double-click opens Task Manager, right-click opens the menu.
-// Meters that are switched off are not sampled at all.
+// refreshed once per second. Double-click opens Task Manager, right-click opens the menu,
+// hovering shows a tooltip with details. Meters that are switched off are not sampled at all.
 //
 // SPDX-License-Identifier: MIT
 #define WIN32_LEAN_AND_MEAN
@@ -16,6 +16,7 @@
 #include <shellapi.h>
 #include <pdh.h>
 #include <pdhmsg.h>
+#include <stdarg.h>
 #include <string.h>
 #include <wchar.h>
 #include <uiautomation.h>
@@ -23,12 +24,15 @@
 enum { S_CPU = 1, S_RAM = 2, S_GPU = 4, S_DISK = 8, S_NET = 16, S_ALL = 31, S_DEFAULT = S_CPU | S_RAM };
 
 // ---------- strings (Korean UI language -> Korean, otherwise English) ----------
-enum { T_CPU, T_RAM, T_GPU, T_DISK, T_NET, T_LEFT, T_AUTO, T_EXIT, T_COUNT };
+enum { T_CPU, T_RAM, T_GPU, T_DISK, T_NET, T_LEFT, T_AUTO, T_EXIT,
+       T_TIP_RAM, T_TIP_NET, T_TIP_UP, T_DHM, T_HM, T_COUNT };
 static const wchar_t *const STR_EN[T_COUNT] = {
     L"CPU", L"RAM", L"GPU", L"Disk", L"Network", L"Show on left", L"Start with Windows", L"Exit",
+    L"RAM %s / %s GB", L"Total \x2193 %s  \x2191 %s", L"Uptime %s", L"%dd %dh %dm", L"%dh %dm",
 };
 static const wchar_t *const STR_KO[T_COUNT] = {
     L"CPU", L"RAM", L"GPU", L"디스크", L"네트워크", L"왼쪽에 표시", L"Windows 시작 시 실행", L"종료",
+    L"RAM %s / %s GB", L"누적 \x2193 %s  \x2191 %s", L"가동 시간 %s", L"%dd %dh %dm", L"%dh %dm",
 };
 static const wchar_t *const *STR = STR_EN;
 
@@ -54,6 +58,7 @@ static BOOL g_left = FALSE; // left end of the taskbar instead of next to the cl
 
 static int g_cpu, g_ram, g_gpu, g_disk;
 static double g_up, g_down;
+static ULONG64 g_totIn, g_totOut;     // bytes received / sent since start (while the network meter is on)
 
 // ---------- sampling ----------
 static ULONGLONG g_prevIdle, g_prevTotal;
@@ -176,6 +181,8 @@ static void sampleNet(void)
         cur[n++] = s;
     }
     FreeMibTable(t);
+    g_totIn += din;
+    g_totOut += dout;
     ULONGLONG now = GetTickCount64();
     if (g_prevNetT && now > g_prevNetT) {
         double dt = (now - g_prevNetT) / 1000.0;
@@ -529,6 +536,197 @@ static void render(void)
 #undef S
 }
 
+// ---------- hover tooltip ----------
+// Shows what the taskbar has no room for. Our own small popup, drawn off-screen and copied in one go,
+// so it never flickers when a value changes. The text is only built while it is visible.
+static HWND g_tip;
+static HFONT g_tipFont;
+static UINT g_tipDpi;
+static wchar_t g_tipText[512];
+static int g_tipLen;
+static BOOL g_tipOn, g_hoverArmed, g_tipDark, g_tipRounded;
+static HRESULT(WINAPI *g_dwmSetAttr)(HWND, DWORD, LPCVOID, DWORD);
+
+static void tipLine(const wchar_t *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    if (g_tipLen) { lstrcpyW(g_tipText + g_tipLen, L"\r\n"); g_tipLen += 2; }
+    g_tipLen += wvsprintfW(g_tipText + g_tipLen, fmt, ap);
+    va_end(ap);
+}
+
+// 1023 KB, 12.3 MB, 456 MB, 1.2 GB, ...
+static void fmtBytes(wchar_t *out, ULONG64 b)
+{
+    static const wchar_t *const UNIT[] = { L"KB", L"MB", L"GB", L"TB" };
+    ULONG64 div = 1024;
+    int u = 0;
+    while (u < 3 && b >= div * 1000) { div *= 1024; u++; }
+    ULONG64 x10 = (b * 10 + div / 2) / div;
+    if (x10 < 100) wsprintfW(out, L"%d.%d %s", (int)(x10 / 10), (int)(x10 % 10), UNIT[u]);
+    else wsprintfW(out, L"%d %s", (int)((x10 + 5) / 10), UNIT[u]);
+}
+
+static void fmtGB(wchar_t *out, ULONG64 b)
+{
+    ULONG64 x10 = (b * 10 + (1ULL << 29)) >> 30;
+    wsprintfW(out, L"%d.%d", (int)(x10 / 10), (int)(x10 % 10));
+}
+
+static void buildTip(void)
+{
+    wchar_t a[24], b[24];
+    g_tipLen = 0;
+    g_tipText[0] = 0;
+    // RAM and uptime are read here, so they cost nothing while the tooltip is hidden.
+    MEMORYSTATUSEX ms = { sizeof ms };
+    if (GlobalMemoryStatusEx(&ms)) {
+        fmtGB(a, ms.ullTotalPhys - ms.ullAvailPhys); // Task Manager's "In use"
+        fmtGB(b, ms.ullTotalPhys);
+        tipLine(STR[T_TIP_RAM], a, b);
+    }
+    // Totals need sampling every second, so they only exist while the network meter is on.
+    if (g_show & S_NET) {
+        fmtBytes(a, g_totIn);
+        fmtBytes(b, g_totOut);
+        tipLine(STR[T_TIP_NET], a, b);
+    }
+    ULONGLONG min = GetTickCount64() / 60000;
+    int d = (int)(min / 1440), h = (int)(min / 60 % 24), m = (int)(min % 60);
+    if (d) wsprintfW(a, STR[T_DHM], d, h, m);
+    else wsprintfW(a, STR[T_HM], h, m);
+    tipLine(STR[T_TIP_UP], a);
+}
+
+#define TIP_S(v) MulDiv((v), g_tipDpi, 96)
+
+static LRESULT CALLBACK tipProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
+{
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        HDC mem = CreateCompatibleDC(dc);
+        HBITMAP bmp = CreateCompatibleBitmap(dc, rc.right, rc.bottom);
+        HGDIOBJ oldBmp = SelectObject(mem, bmp);
+        HGDIOBJ oldFont = SelectObject(mem, g_tipFont ? (HGDIOBJ)g_tipFont : GetStockObject(DEFAULT_GUI_FONT));
+        HBRUSH bg = CreateSolidBrush(g_tipDark ? RGB(43, 43, 43) : RGB(249, 249, 249));
+        FillRect(mem, &rc, bg);
+        DeleteObject(bg);
+        if (!g_tipRounded) { // Windows 10: no DWM border, draw one
+            HBRUSH br = CreateSolidBrush(g_tipDark ? RGB(70, 70, 70) : RGB(200, 200, 200));
+            FrameRect(mem, &rc, br);
+            DeleteObject(br);
+        }
+        SetBkMode(mem, TRANSPARENT);
+        SetTextColor(mem, g_tipDark ? RGB(255, 255, 255) : RGB(26, 26, 26));
+        RECT tr = { TIP_S(8), TIP_S(5), rc.right - TIP_S(8), rc.bottom - TIP_S(5) };
+        DrawTextW(mem, g_tipText, -1, &tr, DT_LEFT | DT_NOPREFIX);
+        BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, oldFont);
+        SelectObject(mem, oldBmp);
+        DeleteObject(bmp);
+        DeleteDC(mem);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+static BOOL ensureTip(void)
+{
+    if (g_tip) return TRUE;
+    g_tip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"TaskbarMeterTip", L"", WS_POPUP,
+                            0, 0, 0, 0, g_main, NULL, g_inst, NULL);
+    if (!g_tip) return FALSE;
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (dwm) g_dwmSetAttr = (void *)GetProcAddress(dwm, "DwmSetWindowAttribute");
+    DWORD round = 3; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUNDSMALL; fails before Windows 11
+    g_tipRounded = g_dwmSetAttr && SUCCEEDED(g_dwmSetAttr(g_tip, 33, &round, sizeof round));
+    return TRUE;
+}
+
+// The taskbar's monitor decides the DPI; the font is the one Windows uses for tooltips.
+static void tipStyle(void)
+{
+    UINT dpi = GetDpiForWindow(g_tray);
+    if (!dpi) dpi = 96;
+    if (!g_tipFont || dpi != g_tipDpi) {
+        NONCLIENTMETRICSW ncm = { sizeof ncm };
+        if (g_tipFont) DeleteObject(g_tipFont);
+        g_tipFont = SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof ncm, &ncm, 0, dpi)
+                        ? CreateFontIndirectW(&ncm.lfStatusFont) : NULL;
+        g_tipDpi = dpi;
+    }
+    g_tipDark = !isLightTheme();
+    if (g_tipRounded) {
+        COLORREF border = g_tipDark ? RGB(70, 70, 70) : RGB(220, 220, 220); // DWMWA_BORDER_COLOR
+        g_dwmSetAttr(g_tip, 34, &border, sizeof border);
+    }
+}
+
+static SIZE tipSize(void)
+{
+    HDC dc = GetDC(NULL);
+    HGDIOBJ old = SelectObject(dc, g_tipFont ? (HGDIOBJ)g_tipFont : GetStockObject(DEFAULT_GUI_FONT));
+    RECT r = { 0, 0, 0, 0 };
+    DrawTextW(dc, g_tipText, -1, &r, DT_CALCRECT | DT_LEFT | DT_NOPREFIX);
+    SelectObject(dc, old);
+    ReleaseDC(NULL, dc);
+    SIZE s = { r.right + TIP_S(16), r.bottom + TIP_S(10) };
+    return s;
+}
+
+// Shown centered above the meter, kept on the taskbar's monitor, and left there:
+// following the width as the numbers change would make it wander.
+static void showTip(void)
+{
+    RECT wr, tr;
+    if (!g_child || !GetWindowRect(g_child, &wr) || !GetWindowRect(g_tray, &tr) || !ensureTip()) return;
+    tipStyle();
+    buildTip();
+    SIZE s = tipSize();
+    int x = (wr.left + wr.right) / 2 - s.cx / 2;
+    MONITORINFO mi = { sizeof mi };
+    if (GetMonitorInfoW(MonitorFromWindow(g_tray, MONITOR_DEFAULTTONEAREST), &mi)) {
+        if (x + s.cx > mi.rcMonitor.right) x = mi.rcMonitor.right - s.cx;
+        if (x < mi.rcMonitor.left) x = mi.rcMonitor.left;
+    }
+    int y = tr.top - s.cy - TIP_S(8);
+    InvalidateRect(g_tip, NULL, FALSE);
+    SetWindowPos(g_tip, HWND_TOPMOST, x, y, s.cx, s.cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    g_tipOn = TRUE;
+}
+
+// Repaints only when the text actually changed; grows or shrinks to the right, never moves.
+static void updateTip(void)
+{
+    if (!g_tipOn) return;
+    wchar_t prev[sizeof g_tipText / sizeof g_tipText[0]];
+    lstrcpyW(prev, g_tipText);
+    buildTip();
+    if (lstrcmpW(prev, g_tipText) == 0) return;
+    SIZE s = tipSize();
+    SetWindowPos(g_tip, NULL, 0, 0, s.cx, s.cy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    InvalidateRect(g_tip, NULL, FALSE);
+}
+#undef TIP_S
+
+static void hideTip(void)
+{
+    if (g_tipOn) ShowWindow(g_tip, SW_HIDE);
+    g_tipOn = FALSE;
+    g_hoverArmed = FALSE; // re-arm hover tracking on the next mouse move
+}
+
 static void tick(void)
 {
     sampleAll();
@@ -537,6 +735,7 @@ static void tick(void)
 
     // (Re)attach to the taskbar - it is recreated whenever Explorer restarts.
     if (t != g_tray || !g_child || !IsWindow(g_child)) {
+        hideTip();
         if (g_child && IsWindow(g_child)) DestroyWindow(g_child);
         g_tray = t;
         resetLeftEnd();
@@ -545,6 +744,7 @@ static void tick(void)
         if (!g_child) return;
     }
     render();
+    updateTip();
 }
 
 // ---------- start with Windows (HKCU Run key) ----------
@@ -606,10 +806,27 @@ static void showMenu(void)
 static LRESULT CALLBACK childProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
+    case WM_MOUSEMOVE:
+        if (!g_hoverArmed) {
+            TRACKMOUSEEVENT t = { sizeof t, TME_HOVER | TME_LEAVE, h, HOVER_DEFAULT };
+            g_hoverArmed = TrackMouseEvent(&t);
+        }
+        return 0;
+    case WM_MOUSEHOVER:
+        showTip();
+        return 0;
+    case WM_MOUSELEAVE:
+        hideTip();
+        return 0;
+    case WM_LBUTTONDOWN:
+        hideTip();
+        return 0;
     case WM_LBUTTONDBLCLK:
+        hideTip();
         ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOWNORMAL);
         return 0;
     case WM_RBUTTONUP:
+        hideTip();
         PostMessageW(g_main, WM_SHOWMENU, 0, 0); // show it from our own top-level window
         return 0;
     }
@@ -656,6 +873,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     wc.style = CS_DBLCLKS;
     wc.lpfnWndProc = childProc;
     wc.lpszClassName = L"TaskbarMeterChild";
+    RegisterClassW(&wc);
+    wc.style = CS_DROPSHADOW;
+    wc.lpfnWndProc = tipProc;
+    wc.lpszClassName = L"TaskbarMeterTip";
     RegisterClassW(&wc);
 
     // Hidden top-level window: owns the timer and the menu, and outlives Explorer restarts.

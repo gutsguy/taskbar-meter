@@ -10,7 +10,10 @@
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<img src="docs/screenshot-dark.png" alt="Windows 11 작업표시줄의 TaskbarMeter" width="500">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
+  <img src="docs/screenshot-dark.png" alt="Windows 11 작업표시줄의 TaskbarMeter" width="500">
+</picture>
 
 [English](README.md) · **한국어**
 
@@ -38,7 +41,7 @@ TaskbarMeter는 작업표시줄과 같은 글꼴로 글자만 그리고, 라이�
 | CPU | **0.02%** | 0.06% |
 | 배포 크기 | **파일 1개, 약 70KB** | 파일 약 60개, 압축 1MB |
 
-모든 항목을 켜면 약 7MB를 씁니다 (GPU 카운터가 가장 무겁습니다).
+모든 항목을 켜면 약 7MB를 씁니다 (GPU 카운터가 가장 무겁습니다). 왼쪽 끝에 표시하면 약 2MB가 더 듭니다.
 
 > [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor)는 스킨·그래프·온도·플러그인까지 훨씬 많은 걸 합니다.
 > 그런 기능이 필요하면 TrafficMonitor를 쓰세요. TaskbarMeter는 숫자만 보고 싶은 사람을 위한 프로그램입니다.
@@ -47,7 +50,7 @@ TaskbarMeter는 작업표시줄과 같은 글꼴로 글자만 그리고, 라이�
 
 - CPU, RAM, GPU, 디스크, 네트워크(↑ 업로드 / ↓ 다운로드). 각각 켜고 끌 수 있음
 - 90% 이상이면 숫자가 주황색으로 바뀜
-- 작업표시줄 왼쪽 끝 또는 시계 옆에 표시, 앱 아이콘과 겹치면 자동으로 비켜남
+- 시계 옆 또는 작업표시줄 왼쪽 끝에 표시 (위젯 버튼이 있으면 그 오른쪽에 붙고, 앱 아이콘과도 겹치지 않음)
 - 더블클릭하면 작업 관리자 열림
 - 탐색기가 재시작돼도 다시 붙음
 - 메뉴는 한국어/영어 (Windows 표시 언어를 따름)
@@ -65,7 +68,7 @@ TaskbarMeter는 작업표시줄과 같은 글꼴로 글자만 그리고, 라이�
 | 동작 | 결과 |
 |---|---|
 | 더블클릭 | 작업 관리자 열기 |
-| 우클릭 | 항목 켜기·끄기, 위치, 시작 시 실행, 종료 |
+| 우클릭 | 항목 켜기·끄기, 왼쪽에 표시, 시작 시 실행, 종료 |
 
 설정은 `HKCU\Software\TaskbarMeter`에 저장됩니다.
 
@@ -88,6 +91,7 @@ build.cmd
 - 작업표시줄(`Shell_TrayWnd`)에 레이어드 자식 창을 붙이고, 1초마다 픽셀 단위 투명도로 다시 그립니다.
 - CPU는 `GetSystemTimes`, RAM은 `GlobalMemoryStatusEx`, 네트워크는 `GetIfTable2` (실제 장치만).
 - GPU와 디스크는 작업 관리자와 같은 성능 카운터(`GPU Engine`, `PhysicalDisk`)를 씁니다.
+- 왼쪽 끝 모드에서는 UI Automation으로 위젯 버튼이 끝나는 위치를 찾고, 작업표시줄 설정이 바뀌면 바로 다시 확인합니다.
 
 ## 제한 사항
 

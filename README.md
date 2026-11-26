@@ -10,7 +10,10 @@ It looks like it shipped with Windows and uses about 1.3 MB of memory.
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<img src="docs/screenshot-dark.png" alt="TaskbarMeter on the Windows 11 taskbar" width="500">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
+  <img src="docs/screenshot-dark.png" alt="TaskbarMeter on the Windows 11 taskbar" width="500">
+</picture>
 
 **English** · [한국어](README.ko.md)
 
@@ -38,7 +41,7 @@ Measured on the same Windows 11 PC, showing CPU + RAM + network, averaged over 3
 | CPU | **0.02 %** | 0.06 % |
 | Download | **1 file, ~70 KB** | ~60 files, 1 MB zip |
 
-With every meter turned on, TaskbarMeter uses about 7 MB (GPU counters are the expensive part).
+With every meter turned on it uses about 7 MB (GPU counters are the expensive part). The left-end position adds about 2 MB.
 
 > [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) does far more: skins, graphs, temperatures, plugins.
 > If you need those, use it. TaskbarMeter is for people who only want the numbers.
@@ -47,7 +50,7 @@ With every meter turned on, TaskbarMeter uses about 7 MB (GPU counters are the e
 
 - CPU, RAM, GPU, disk and network (↑ upload / ↓ download), each can be turned on or off
 - Values turn orange at 90 % and above
-- Left end of the taskbar or next to the clock, and it moves out of the way of your app icons
+- Next to the clock, or at the left end of the taskbar (it moves past the Widgets button and out of the way of your app icons)
 - Double-click opens Task Manager
 - Survives Explorer restarts
 - English and Korean menu (follows the Windows display language)
@@ -65,7 +68,7 @@ Windows SmartScreen may warn about an unsigned app on first run: **More info →
 | Action | Result |
 |---|---|
 | Double-click | Open Task Manager |
-| Right-click | Toggle meters, position, start with Windows, exit |
+| Right-click | Toggle meters, show on left, start with Windows, exit |
 
 Settings are stored in `HKCU\Software\TaskbarMeter`.
 
@@ -88,6 +91,7 @@ The whole program is one C file, [`src/meter.c`](src/meter.c), using only Win32 
 - A layered child window is attached to the taskbar (`Shell_TrayWnd`) and redrawn once per second with per-pixel alpha.
 - CPU from `GetSystemTimes`, RAM from `GlobalMemoryStatusEx`, network from `GetIfTable2` (physical adapters only).
 - GPU and disk from Performance Counters (`GPU Engine`, `PhysicalDisk`), the same sources Task Manager uses.
+- In left-end mode, UI Automation finds where the Widgets button ends, re-checked as soon as taskbar settings change.
 
 ## Limitations
 

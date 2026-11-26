@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define UNICODE
 #define _UNICODE
+#define COBJMACROS
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2ipdef.h>
@@ -16,6 +17,7 @@
 #include <pdh.h>
 #include <pdhmsg.h>
 #include <wchar.h>
+#include <uiautomation.h>
 
 enum { S_CPU = 1, S_RAM = 2, S_GPU = 4, S_DISK = 8, S_NET = 16, S_ALL = 31, S_DEFAULT = S_CPU | S_RAM };
 
@@ -47,7 +49,7 @@ static HWND g_main, g_child, g_tray;
 static HFONT g_font;
 static UINT g_fontDpi;
 static DWORD g_show = S_DEFAULT;
-static BOOL g_left = TRUE; // left end of the taskbar (centered taskbar only)
+static BOOL g_left = FALSE; // left end of the taskbar instead of next to the clock (centered taskbar only)
 
 static int g_cpu, g_ram, g_gpu, g_disk;
 static double g_up, g_down;
@@ -224,6 +226,113 @@ static BOOL isLightTheme(void)
     return FALSE;
 }
 
+// ---------- left-end placement ----------
+// Things Windows draws left of the Start button (the Widgets/weather button, ...) have no window of
+// their own, so ask UI Automation where they end. Runs on a worker thread: our window lives inside the
+// taskbar, so querying the taskbar from our UI thread could deadlock. Only active in left mode.
+static const GUID CLSID_UIA = { 0xff48dba4, 0x60ef, 0x4201, { 0xaa, 0x87, 0x54, 0x10, 0x3e, 0xef, 0x59, 0x4e } };
+static const GUID IID_UIA = { 0x30cbe57d, 0xd9d0, 0x452a, { 0xab, 0x13, 0x7a, 0xc5, 0xac, 0x48, 0x25, 0xee } };
+#define WM_LEFTEND (WM_APP + 2)
+static volatile LONG g_leftEnd = -1; // right edge of whatever sits left of Start (taskbar-relative), -1 = unknown
+static volatile LONG g_wantLeftEnd;  // 1 while left placement is in use
+static HANDLE g_uiaThread, g_uiaWake;
+
+static LONG findLeftEnd(IUIAutomation *uia, IUIAutomationCondition *all, IUIAutomationCacheRequest *cache, HWND tray, HWND self)
+{
+    RECT tr, sr;
+    HWND start = FindWindowExW(tray, NULL, L"Start", NULL);
+    if (!GetWindowRect(tray, &tr) || !start || !GetWindowRect(start, &sr)) return 0;
+    LONG best = 0;
+    IUIAutomationElement *root = NULL;
+    IUIAutomationElementArray *arr = NULL;
+    // One round trip: fetch every element of the taskbar with the three properties we need.
+    if (SUCCEEDED(IUIAutomation_ElementFromHandle(uia, tray, &root)) && root &&
+        SUCCEEDED(IUIAutomationElement_FindAllBuildCache(root, TreeScope_Descendants, all, cache, &arr)) && arr) {
+        int n = 0;
+        IUIAutomationElementArray_get_Length(arr, &n);
+        for (int i = 0; i < n; i++) {
+            IUIAutomationElement *e;
+            if (FAILED(IUIAutomationElementArray_GetElement(arr, i, &e)) || !e) continue;
+            RECT r;
+            UIA_HWND hw = NULL;
+            BSTR cls = NULL;
+            IUIAutomationElement_get_CachedNativeWindowHandle(e, &hw);
+            IUIAutomationElement_get_CachedClassName(e, &cls);
+            BOOL skip = (HWND)hw == self || (cls && lstrcmpW(cls, L"Windows.UI.Input.InputSite.WindowClass") == 0);
+            if (cls) SysFreeString(cls);
+            if (!skip && SUCCEEDED(IUIAutomationElement_get_CachedBoundingRectangle(e, &r)) && r.right > r.left &&
+                r.left >= tr.left && r.right <= sr.left && r.right - tr.left > best)
+                best = r.right - tr.left;
+            IUIAutomationElement_Release(e);
+        }
+    }
+    if (arr) IUIAutomationElementArray_Release(arr);
+    if (root) IUIAutomationElement_Release(root);
+    return best;
+}
+
+static DWORD WINAPI uiaThreadProc(void *arg)
+{
+    (void)arg;
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    IUIAutomation *uia = NULL;
+    IUIAutomationCondition *all = NULL;
+    IUIAutomationCacheRequest *cache = NULL;
+    if (SUCCEEDED(CoCreateInstance(&CLSID_UIA, NULL, CLSCTX_INPROC_SERVER, &IID_UIA, (void **)&uia)) && uia &&
+        SUCCEEDED(IUIAutomation_CreateTrueCondition(uia, &all)) &&
+        SUCCEEDED(IUIAutomation_CreateCacheRequest(uia, &cache))) {
+        IUIAutomationCacheRequest_AddProperty(cache, UIA_BoundingRectanglePropertyId);
+        IUIAutomationCacheRequest_AddProperty(cache, UIA_NativeWindowHandlePropertyId);
+        IUIAutomationCacheRequest_AddProperty(cache, UIA_ClassNamePropertyId);
+    } else {
+        uia = NULL;
+    }
+
+    // Taskbar settings (Widgets on/off, alignment, ...) live here; react to changes right away.
+    HANDLE wait[2] = { g_uiaWake, CreateEventW(NULL, FALSE, FALSE, NULL) };
+    HKEY key = NULL;
+    int nwait = 1;
+    if (wait[1] && RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", 0,
+                                 KEY_NOTIFY, &key) == ERROR_SUCCESS &&
+        RegNotifyChangeKeyValue(key, FALSE, REG_NOTIFY_CHANGE_LAST_SET, wait[1], TRUE) == ERROR_SUCCESS)
+        nwait = 2;
+
+    // After a change, re-measure a few times while the taskbar animates; otherwise every 5 s.
+    static const DWORD FOLLOW[] = { 300, 500, 700, 1500, 2000 };
+    int follow = -1;
+    for (;;) {
+        DWORD r = WaitForMultipleObjects(nwait, wait, FALSE, follow >= 0 ? FOLLOW[follow] : 5000);
+        if (r == WAIT_OBJECT_0 + 1) {
+            RegNotifyChangeKeyValue(key, FALSE, REG_NOTIFY_CHANGE_LAST_SET, wait[1], TRUE);
+            follow = 0;
+        } else if (r == WAIT_TIMEOUT && follow >= 0 && ++follow == (int)(sizeof FOLLOW / sizeof FOLLOW[0])) {
+            follow = -1;
+        }
+        if (!g_wantLeftEnd) continue;
+        HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+        if (!tray) continue;
+        LONG v = uia ? findLeftEnd(uia, all, cache, tray, g_child) : 0;
+        if (InterlockedExchange(&g_leftEnd, v) != v) PostMessageW(g_main, WM_LEFTEND, 0, 0);
+    }
+}
+// Returns the left-end x position, or -1 while the first measurement is pending.
+static int leftEndX(void)
+{
+    g_wantLeftEnd = 1;
+    if (!g_uiaThread) {
+        g_uiaWake = CreateEventW(NULL, FALSE, FALSE, NULL);
+        g_uiaThread = CreateThread(NULL, 0, uiaThreadProc, NULL, 0, NULL);
+        if (!g_uiaThread) return 0;
+    }
+    LONG le = g_leftEnd;
+    if (le < 0) SetEvent(g_uiaWake);
+    return le;
+}
+
+static void resetLeftEnd(void)
+{
+    InterlockedExchange(&g_leftEnd, -1);
+}
 // ---------- drawing ----------
 typedef struct { const wchar_t *label; wchar_t value[16]; BOOL hot; } Row;
 typedef struct { Row rows[2]; int n; BOOL net; int labelW, w; } Col;
@@ -324,9 +433,22 @@ static void render(void)
     // Use the empty left end if asked to, or if the right spot would cover the icons.
     HWND start = FindWindowExW(g_tray, NULL, L"Start", NULL);
     RECT sr;
+    BOOL useLeft = FALSE;
     if (start && GetWindowRect(start, &sr) && sr.left - tr.left > S(100)) {
         int iconsRight = (tr.right - tr.left) - (sr.left - tr.left);
-        if (g_left || x < iconsRight + S(8)) x = S(12);
+        useLeft = g_left || x < iconsRight + S(8);
+    }
+    if (useLeft) {
+        int le = leftEndX();
+        if (le < 0) { // wait for the first measurement instead of flashing in the wrong place
+            SelectObject(mem, oldFont);
+            DeleteDC(mem);
+            ReleaseDC(NULL, screen);
+            return;
+        }
+        x = le + S(12);
+    } else {
+        g_wantLeftEnd = 0;
     }
 
     BITMAPINFO bi = { 0 };
@@ -400,6 +522,7 @@ static void tick(void)
     if (t != g_tray || !g_child || !IsWindow(g_child)) {
         if (g_child && IsWindow(g_child)) DestroyWindow(g_child);
         g_tray = t;
+        resetLeftEnd();
         g_child = CreateWindowExW(WS_EX_LAYERED, L"TaskbarMeterChild", L"", WS_CHILD | WS_CLIPSIBLINGS, 0, 0, 1, 1,
                                   g_tray, NULL, g_inst, NULL);
         if (!g_child) return;
@@ -453,6 +576,7 @@ static void showMenu(void)
         if (g_child && IsWindow(g_child)) render();
     } else if (cmd == ID_LEFT) {
         setLeft(!g_left);
+        resetLeftEnd();
         if (g_child && IsWindow(g_child)) render();
     } else if (cmd == ID_AUTO) {
         setAuto(!isAuto());
@@ -483,6 +607,9 @@ static LRESULT CALLBACK mainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SHOWMENU:
         showMenu();
+        return 0;
+    case WM_LEFTEND:
+        if (g_child && IsWindow(g_child)) render();
         return 0;
     case WM_DESTROY:
         KillTimer(h, 1);

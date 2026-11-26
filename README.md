@@ -10,10 +10,8 @@ It looks like it shipped with Windows and uses about 1.3 MB of memory.
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
-  <img src="docs/screenshot-dark.png" alt="TaskbarMeter on the Windows 11 taskbar" width="500">
-</picture>
+<img src="docs/screenshot-dark.png" alt="TaskbarMeter on a dark taskbar" width="500"><br>
+<img src="docs/screenshot-light.png" alt="TaskbarMeter on a light taskbar" width="500">
 
 **English** · [한국어](README.ko.md)
 

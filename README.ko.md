@@ -10,10 +10,8 @@
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
-  <img src="docs/screenshot-dark.png" alt="Windows 11 작업표시줄의 TaskbarMeter" width="500">
-</picture>
+<img src="docs/screenshot-dark.png" alt="다크 테마 작업표시줄의 TaskbarMeter" width="500"><br>
+<img src="docs/screenshot-light.png" alt="라이트 테마 작업표시줄의 TaskbarMeter" width="500">
 
 [English](README.md) · **한국어**
 

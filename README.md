@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icon.svg" alt="" width="96">
+
 # TaskbarMeter
 
 **A tiny CPU / RAM / GPU / disk / network monitor for the Windows taskbar.**<br>
@@ -25,7 +27,7 @@ Most taskbar monitors bring their own box, background and font, and they cost te
 TaskbarMeter draws plain text in the taskbar's own font, follows your light/dark theme, and stays out of the way.
 
 - **Native look.** Segoe UI, transparent background, matches the clock. Light and dark themes, any DPI.
-- **Tiny.** A single ~70 KB `.exe`. No installer, no runtime, no config files.
+- **Tiny.** A single ~90 KB `.exe`. No installer, no runtime, no config files.
 - **Pay for what you show.** Meters you turn off are not sampled at all.
 
 ## Footprint
@@ -36,7 +38,7 @@ Measured on the same Windows 11 PC, showing CPU + RAM + network, averaged over 3
 |---|---:|---:|
 | Private memory | **1.3 MB** | 13.5 MB |
 | CPU | **0.02 %** | 0.06 % |
-| Download | **1 file, ~70 KB** | ~60 files, 1 MB zip |
+| Download | **1 file, ~90 KB** | ~60 files, 1 MB zip |
 
 With every meter turned on it uses about 7 MB (GPU counters are the expensive part). The left-end position adds about 2 MB.
 

@@ -7,7 +7,7 @@ It looks like it shipped with Windows and uses about 1.3 MB of memory.
 
 [![Build](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml/badge.svg)](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/gutsguy/taskbar-meter)](https://github.com/gutsguy/taskbar-meter/releases/latest)
-![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
+![Windows 11](https://img.shields.io/badge/Windows-11-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <img src="docs/screenshot-dark.png" alt="TaskbarMeter on a dark taskbar" width="500"><br>
@@ -93,7 +93,7 @@ The whole program is one C file, [`src/meter.c`](src/meter.c), using only Win32 
 
 ## Limitations
 
-- Windows 10 (1607+) and Windows 11. Developed and tested on Windows 11.
+- Built and tested for Windows 11. Windows 10 (1607+) should run it but is untested; there, a full taskbar's app buttons can slide under the meter, and vertical taskbars are not supported.
 - Primary monitor's taskbar only.
 - No temperatures. Reading them needs administrator rights and a kernel driver, which goes against the point of this app.
 

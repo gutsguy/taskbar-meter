@@ -16,6 +16,7 @@
 #include <shellapi.h>
 #include <pdh.h>
 #include <pdhmsg.h>
+#include <string.h>
 #include <wchar.h>
 #include <uiautomation.h>
 
@@ -146,34 +147,45 @@ static void pdhClose(PDH_HQUERY *q)
 }
 
 // Network: bytes sent/received by physical adapters (skips loopback, VPN and filter layers).
-static ULONG64 g_prevIn, g_prevOut;
+// Deltas are taken per adapter, so an adapter that just came up doesn't show its lifetime total as a spike.
+typedef struct { ULONG64 luid, in, out; } IfStat;
+enum { MAX_IF = 64 };
+static IfStat g_prevIf[MAX_IF];
+static int g_nPrevIf;
 static ULONGLONG g_prevNetT;
 
 static void sampleNet(void)
 {
     MIB_IF_TABLE2 *t;
     if (GetIfTable2(&t) != NO_ERROR) return;
-    ULONG64 in = 0, out = 0;
-    for (ULONG i = 0; i < t->NumEntries; i++) {
+    IfStat cur[MAX_IF];
+    int n = 0;
+    ULONG64 din = 0, dout = 0;
+    for (ULONG i = 0; i < t->NumEntries && n < MAX_IF; i++) {
         MIB_IF_ROW2 *r = &t->Table[i];
         if (!r->InterfaceAndOperStatusFlags.HardwareInterface || r->InterfaceAndOperStatusFlags.FilterInterface ||
             r->OperStatus != IfOperStatusUp)
             continue;
-        in += r->InOctets;
-        out += r->OutOctets;
+        IfStat s = { r->InterfaceLuid.Value, r->InOctets, r->OutOctets };
+        for (int j = 0; j < g_nPrevIf; j++) {
+            if (g_prevIf[j].luid != s.luid) continue;
+            if (s.in >= g_prevIf[j].in) din += s.in - g_prevIf[j].in;
+            if (s.out >= g_prevIf[j].out) dout += s.out - g_prevIf[j].out;
+            break;
+        }
+        cur[n++] = s;
     }
     FreeMibTable(t);
     ULONGLONG now = GetTickCount64();
-    if (g_prevNetT && now > g_prevNetT && in >= g_prevIn && out >= g_prevOut) {
+    if (g_prevNetT && now > g_prevNetT) {
         double dt = (now - g_prevNetT) / 1000.0;
-        g_down = (in - g_prevIn) / dt;
-        g_up = (out - g_prevOut) / dt;
+        g_down = din / dt;
+        g_up = dout / dt;
     }
-    g_prevIn = in;
-    g_prevOut = out;
+    memcpy(g_prevIf, cur, n * sizeof cur[0]);
+    g_nPrevIf = n;
     g_prevNetT = now;
 }
-
 static void sampleAll(void)
 {
     if (g_show & S_CPU) sampleCpu();
@@ -214,7 +226,7 @@ static void applyShow(DWORD s)
     else pdhClose(&g_qDisk);
 
     if (turnedOn & S_CPU) { g_prevTotal = 0; sampleCpu(); }
-    if (turnedOn & S_NET) { g_prevNetT = 0; g_up = g_down = 0; sampleNet(); }
+    if (turnedOn & S_NET) { g_prevNetT = 0; g_nPrevIf = 0; g_up = g_down = 0; sampleNet(); }
 }
 
 static BOOL isLightTheme(void)
@@ -410,7 +422,12 @@ static void render(void)
 
     // Column widths are sized for the widest possible value so the layout never jitters.
     int gapIn = S(5), gapCol = S(10), w = 0;
-    int pctW = textW(mem, L"100%"), netW = textW(mem, L"999 KB");
+    int pctW = textW(mem, L"100%"), netW = 0;
+    static const wchar_t *const WIDEST_RATE[] = { L"999 KB", L"999 MB", L"9.9 GB" };
+    for (int i = 0; i < 3; i++) {
+        int tw = textW(mem, WIDEST_RATE[i]);
+        if (tw > netW) netW = tw;
+    }
     for (int i = 0; i < nc; i++) {
         Col *c = &cols[i];
         c->labelW = 0;

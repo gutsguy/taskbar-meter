@@ -7,7 +7,7 @@
 
 [![Build](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml/badge.svg)](https://github.com/gutsguy/taskbar-meter/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/gutsguy/taskbar-meter)](https://github.com/gutsguy/taskbar-meter/releases/latest)
-![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
+![Windows 11](https://img.shields.io/badge/Windows-11-0078D4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <img src="docs/screenshot-dark.png" alt="다크 테마 작업표시줄의 TaskbarMeter" width="500"><br>
@@ -93,7 +93,7 @@ build.cmd
 
 ## 제한 사항
 
-- Windows 10 (1607 이후)과 Windows 11. Windows 11에서 개발·테스트했습니다.
+- Windows 11용으로 만들고 테스트했습니다. Windows 10 (1607 이후)에서도 실행은 되지만 테스트하지 않았고, 작업표시줄에 앱이 가득 차면 앱 버튼이 숫자 아래로 들어갈 수 있으며 세로 작업표시줄은 지원하지 않습니다.
 - 주 모니터의 작업표시줄만 지원합니다.
 - 온도는 지원하지 않습니다. 관리자 권한과 커널 드라이버가 필요해서 이 프로그램의 취지와 맞지 않습니다.
 

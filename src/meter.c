@@ -368,11 +368,11 @@ static void fmtRate(Row *r, const wchar_t *label, double bps)
     r->label = label;
     r->hot = FALSE;
     int k = (int)(bps / 1024 + 0.5);
-    if (k < 1000) { wsprintfW(r->value, L"%d KB", k); return; }
+    if (k < 1000) { wsprintfW(r->value, L"%d KB/s", k); return; }
     int m10 = (int)(bps / (1024.0 * 1024) * 10 + 0.5); // MB/s x 10
-    if (m10 < 100) wsprintfW(r->value, L"%d.%d MB", m10 / 10, m10 % 10);
-    else if (m10 < 10000) wsprintfW(r->value, L"%d MB", (m10 + 5) / 10);
-    else wsprintfW(r->value, L"%d.%d GB", m10 / 10240, (m10 % 10240) * 10 / 10240);
+    if (m10 < 100) wsprintfW(r->value, L"%d.%d MB/s", m10 / 10, m10 % 10);
+    else if (m10 < 10000) wsprintfW(r->value, L"%d MB/s", (m10 + 5) / 10);
+    else wsprintfW(r->value, L"%d.%d GB/s", m10 / 10240, (m10 % 10240) * 10 / 10240);
 }
 
 static int textW(HDC dc, const wchar_t *s)
@@ -430,7 +430,7 @@ static void render(void)
     // Column widths are sized for the widest possible value so the layout never jitters.
     int gapIn = S(5), gapCol = S(10), w = 0;
     int pctW = textW(mem, L"100%"), netW = 0;
-    static const wchar_t *const WIDEST_RATE[] = { L"999 KB", L"999 MB", L"9.9 GB" };
+    static const wchar_t *const WIDEST_RATE[] = { L"999 KB/s", L"999 MB/s", L"9.9 GB/s" };
     for (int i = 0; i < 3; i++) {
         int tw = textW(mem, WIDEST_RATE[i]);
         if (tw > netW) netW = tw;
